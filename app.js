@@ -1,7 +1,7 @@
 import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
 let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,moveConfirmed=false,wall=null,breakEnabled=false,errorCount=0,invitation='';
-let wallDrag=null,suppressClickUntil=0,management=null;
+let wallDrag=null,suppressClickUntil=0,management=null,boardStamp='',connectionIssue=false,needsSync=false,lastSync=0;
 try{const s=JSON.parse(localStorage.getItem(key));if(s&&typeof s.code==='string'&&typeof s.token==='string')session=s;}catch{}
 const say=s=>$('status').textContent=s,coord=p=>letters[p%7]+(Math.floor(p/7)+1),type=p=>p.type==='square'?'方棋':'圓棋';
 function save(s){session=s;try{if(s)localStorage.setItem(key,JSON.stringify(s));else localStorage.removeItem(key);}catch{}}
@@ -31,7 +31,7 @@ function draggedWall(e){
  const direction=Math.abs(dx)>Math.abs(dy)?dx>0?1:3:dy>0?2:0,q=adjacent(destination.to,direction);
  const next=q===null?null:edge(destination.to,q);return wallOptions(v.game,destination).includes(next)?next:null;
 }
-function moveWallDrag(e){if(wallDrag?.id!==e.pointerId)return;e.preventDefault();wall=draggedWall(e);render();}
+function moveWallDrag(e){if(wallDrag?.id!==e.pointerId)return;e.preventDefault();const next=draggedWall(e);if(next===wall)return;wall=next;drawWalls();}
 function endWallDrag(e,cancel=false){
  const d=wallDrag;if(!d||d.id!==e.pointerId)return;
  const next=cancel?null:draggedWall(e);wallDrag=null;suppressClickUntil=Date.now()+600;
@@ -52,7 +52,7 @@ function submit(){
 }
 function adjacent(p,d){if(p==null)return null;const q=p+[-7,1,7,-1][d];return neighbors(p).includes(q)?q:null;}
 function mine(){return !!v?.game&&v.game.phase!=='done'&&v.game.turn===v.me;}
-function locked(){return !!management||!!queued||busy&&inFlight!=='state';}
+function locked(){return needsSync||!!management||!!queued||busy&&inFlight!=='state';}
 function askManagement(op){
  if(!v?.host||!v.game||locked())return;
  if(wallDrag)endWallDrag({pointerId:wallDrag.id},true);
@@ -92,10 +92,12 @@ function drawBoard(){
  const g=v.game,playing=g.phase==='play',ended=g.phase==='done',yourTurn=mine(),possible=yourTurn&&playing?availablePaths():[];
  const occupied=new Set(g.pieces.map(p=>p.pos));
  const owned=ended?regions(g):[];
+ const stamp=JSON.stringify([v.matchId,g.seq,v.me,selected,destination?.to,moveConfirmed,breakEnabled,locked()]);
+ if(stamp!==boardStamp){boardStamp=stamp;
  grid.forEach((b,i)=>{
   const index=g.pieces.findIndex(p=>p.pos===i),piece=g.pieces[index],preview=destination?.to===i,can=yourTurn&&!locked()&&(g.phase==='setup'?!occupied.has(i):piece?.owner===v.me||possible.some(p=>p.to===i));
   b.disabled=!can;
-  b.className=(can&&!piece?'target ':'')+(index===selected?'selected ':'')+(preview?'preview-cell':'');
+  b.className=(can&&!piece?'target ':'')+(index===selected?'selected ':'')+(preview?'preview-cell ':'')+(g.last?.to===i?'last-to ':g.last?.from===i?'last-from ':'');
   const region=owned.find(r=>r.cells.includes(i));b.style.backgroundColor=region?.owner!=null?colors[region.owner]+'55':'';
   b.replaceChildren();
   if((i<7||i%7===0)){const c=document.createElement('span');c.className='cell-coordinate';c.textContent=coord(i);b.append(c);}
@@ -103,7 +105,13 @@ function drawBoard(){
   else if(preview&&selected>=0){const s=document.createElement('span');s.className='piece ghost '+g.pieces[selected].type;s.style.setProperty('--color',colors[v.me]);s.textContent=String(v.me+1);b.append(s);}
   b.setAttribute('aria-label',coord(i)+(piece?'，'+v.seats[piece.owner].name+' '+type(piece):preview?'，已選落點':'，空格'));
  });
+ }
+ drawWalls();
+}
+function drawWalls(){
+ const g=v?.game;if(!g)return;const ended=g.phase==='done';
  let drawing=g.walls.map(k=>svgLine(k,k===g.last?.wall?'#fff0bf':'#63452a',9)).join('');
+ if(destination?.route?.length>1)drawing+='<polyline points="'+destination.route.map(p=>(p%7+.5)*100+','+(Math.floor(p/7)+.5)*100).join(' ')+'" fill="none" stroke="#fff4c0" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="8 9"/>';
  if(destination?.broken)drawing+=svgLine(destination.broken,'#ee8769',12,'stroke-dasharray="10 7"');
  if(wall)drawing+=svgLine(wall,'#efffc5',12);
  if(moveConfirmed&&destination&&!ended){
@@ -114,6 +122,11 @@ function drawBoard(){
  $('board-art').innerHTML=drawing;
 }
 function render(){
+ $('connection').hidden=!session;
+ $('connection').textContent=needsSync?'正在確認上一手…':connectionIssue?'連線恢復中…':lastSync?'已連線':'連線中…';
+ $('connection').className=connectionIssue||needsSync?'connection warning':'connection';
+ $('retry-sync').hidden=!session||!connectionIssue;
+ $('retry-sync').disabled=busy;
  if(management&&(!v?.game||management.matchId!==v.matchId))management=null;
  $('action-confirm').hidden=!management;
  $('game-actions').hidden=!v?.game;
@@ -148,13 +161,17 @@ function render(){
  $('again-ready').disabled=busy;$('again').hidden=!v.host;$('again').disabled=$('start').disabled;
  if(!g)return;
  $('stage').textContent=g.phase==='setup'?'佈子階段':ended?'領地結算':'第 '+(g.seq+1)+' 手';
+ $('table').className=mine()?'your-turn':'';
+ const step=g.phase==='setup'?0:selected<0?0:!moveConfirmed?1:2;
+ $('steps').hidden=!mine()||g.phase==='setup';
+ Array.from($('steps').children).forEach((el,i)=>{el.className=i===step?'current':i<step?'complete':'';el.setAttribute('aria-current',i===step?'step':'false');});
  $('turn').textContent=ended?'疆界已定':mine()?'輪到你 · '+(g.phase==='setup'?'放置'+type(g.pieces[pendingPiece(g)]):'移動一顆棋，再造牆'):'等候 '+v.seats[g.turn].name+(v.seats[g.turn].ai?' 思考中':'');
  $('controls').hidden=!mine();
  $('break-wrap').hidden=g.phase!=='play'||!g.breakers[v.me];
  $('wall-controls').hidden=g.phase!=='play'||!moveConfirmed;
  $('board-shell').style.touchAction=mine()&&moveConfirmed?'none':'';
  $('selected-title').textContent=selected<0?'選擇棋子':type(g.pieces[selected])+(g.pieces[selected].pos!==null?' · '+coord(g.pieces[selected].pos):'');
- $('instruction').textContent=ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著拖曳築牆。':wallDrag?'拖向亮起的邊，放開即可築牆；拖回中央可取消。':'從落點往亮起的邊拖曳，放開即可送出移動與築牆。';
+ $('instruction').textContent=needsSync?'正在確認上一手是否成功，請稍候。':queued||busy&&inFlight==='play'?'正在送出整手，請稍候…':ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著拖曳築牆。':wallDrag?'拖向亮起的邊，放開即可築牆；拖回中央可取消。':'從落點往亮起的邊拖曳，放開即可送出移動與築牆。';
  const choices=destination&&selected>=0&&g.phase==='play'?wallOptions(g,destination):[];
  dirButtons.forEach((b,d)=>{const q=adjacent(destination?.to,d),k=q===null?null:edge(destination.to,q);b.disabled=locked()||!moveConfirmed||!choices.includes(k);b.className=wall===k?'chosen':'';});
  $('preview').textContent=destination?(g.phase==='setup'?'放置於 '+coord(destination.to):'走到 '+coord(destination.to)+(destination.broken?' · 將使用一次破牆':'')+(wall?' · 已選造牆':' · 尚未選牆')):'操作尚未送出';
@@ -183,7 +200,7 @@ async function request(op,extra={}){
   const result=await response.json();
   if(!response.ok){
    if(op==='state'&&[403,404].includes(response.status)){save(null);v=null;reset();}
-   throw Error(result.error||'服務暫時忙碌。');
+   throw Object.assign(Error(result.error||'服務暫時忙碌。'),{retryable:response.status>=500});
   }
   if(result.left){save(null);v=null;reset();$('info').open=true;}
   else{
@@ -193,11 +210,12 @@ async function request(op,extra={}){
    if(!old||old.matchId!==v.matchId||old.game?.seq!==v.game?.seq){reset();if(v.game)$('info').open=false;}
    deadline=v.deadline?Date.now()+v.deadline-v.serverNow:0;
   }
+  lastSync=Date.now();connectionIssue=false;needsSync=false;
   if(result.view?.notice)say(result.view.notice);else if(op!=='state'||errorCount)say('');errorCount=0;
- }catch(e){errorCount=Math.min(4,errorCount+1);say(e instanceof TypeError||e.name==='TimeoutError'?'連線中斷，正在嘗試恢復；回合倒數不會暫停。':e.message);}
+ }catch(e){errorCount=Math.min(4,errorCount+1);connectionIssue=!!e.retryable||e instanceof TypeError||e.name==='TimeoutError'||e.name==='AbortError';if(connectionIssue&&session&&op!=='state')needsSync=true;say(connectionIssue?'連線中斷，正在嘗試恢復；回合倒數不會暫停。':e.message);}
  finally{
   busy=false;inFlight=null;const pending=queued;queued=null;render();
-  if(pending&&v?.game&&v.matchId===pending.matchId&&(pending.op==='play'?v.game.seq===pending.seq&&mine():v.host))request(pending.op,pending.extra);
+  if(pending&&!connectionIssue&&v?.game&&v.matchId===pending.matchId&&(pending.op==='play'?v.game.seq===pending.seq&&mine():v.host))request(pending.op,pending.extra);
   else schedule();
  }
 }
@@ -212,6 +230,7 @@ $('join').onclick=()=>{const name=$('name').value.trim(),code=$('code').value.tr
 $('ready').onclick=$('again-ready').onclick=()=>request('ready',{ready:!v.seats[v.me].ready});
 $('start').onclick=$('again').onclick=()=>request('start');
 $('add-ai').onclick=()=>request('add-ai');$('remove-ai').onclick=()=>request('remove-ai');
+$('retry-sync').onclick=()=>request('state');
 $('restart-game').onclick=()=>askManagement('restart');$('end-game').onclick=()=>askManagement('end-game');
 $('action-cancel').onclick=()=>{management=null;render();$('restart-game').focus();};
 $('action-accept').onclick=acceptManagement;
