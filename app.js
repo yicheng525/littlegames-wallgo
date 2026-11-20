@@ -1,6 +1,6 @@
 import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
 import {audio} from './audio.js?v=1';
-import {createRecorder,describeEvent} from './record.js?v=1';
+import {createRecorder,describeEvent} from './record.js?v=2';
 let recordStorage;try{recordStorage=globalThis.localStorage;}catch{}
 const recorder=createRecorder(recordStorage);
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
@@ -294,7 +294,7 @@ $('retry-sync').onclick=()=>request('state');
 $('download-record').onclick=()=>{
  const text=recorder.text();if(!text)return;
  const blob=new Blob(['\uFEFF'+text],{type:'text/plain;charset=utf-8'}),url=URL.createObjectURL(blob),link=document.createElement('a');
- link.href=url;link.download='圍牆圍棋2-棋譜.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+ link.href=url;link.download='圍棋圍牆2-棋譜.txt';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 function showAudio(){const enabled=audio.isEnabled();$('sound-toggle').textContent=enabled?'音效：開':'音效：關';$('sound-toggle').setAttribute('aria-pressed',String(enabled));}
 $('sound-toggle').onclick=()=>{audio.setEnabled(!audio.isEnabled());showAudio();};
@@ -314,3 +314,4 @@ $('invite').onclick=async()=>{const url=new URL('./',location.href);url.searchPa
 invitation=(new URLSearchParams(location.search).get('room')||'').toUpperCase();if(/^[A-HJ-NP-Z2-9]{8}$/.test(invitation))$('code').value=invitation;
 document.addEventListener('visibilitychange',()=>{if(document.hidden){audio.stop();if(wallDrag)endWallDrag({pointerId:wallDrag.id},true);}schedule();});
 showAudio();render();if(session)request('state');
+

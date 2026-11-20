@@ -28,7 +28,7 @@ export function createRecorder(storage){
  function summary(){return {known:record?.events.length||0,total:record?.total||0,complete:!!record&&record.events.length===record.total};}
  function text(){
   if(!record)return '';
-  const info=summary(),lines=['圍牆圍棋2 · 本局棋譜',record.count+' 人對戰 · '+record.names.join('、'),'已記錄 '+info.known+' / '+info.total+' 手',info.complete?'棋譜完整。':'部分手數未被此裝置記錄，以下保留原手數，未補猜缺漏行動。',''];
+  const info=summary(),lines=['圍棋圍牆2 · 本局棋譜',record.count+' 人對戰 · '+record.names.join('、'),'已記錄 '+info.known+' / '+info.total+' 手',info.complete?'棋譜完整。':'部分手數未被此裝置記錄，以下保留原手數，未補猜缺漏行動。',''];
   let previous=0;
   for(const e of record.events){if(e.seq>previous+1)lines.push('（缺少第 '+(previous+1)+'～'+(e.seq-1)+' 手）');lines.push('#'+e.seq+' '+describeEvent(e,record.names));previous=e.seq;}
   if(previous<record.total)lines.push('（缺少第 '+(previous+1)+'～'+record.total+' 手）');
@@ -37,3 +37,4 @@ export function createRecorder(storage){
  }
  return {capture,summary,text};
 }
+
