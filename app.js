@@ -1,12 +1,26 @@
-import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js';
+import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
-let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,wall=null,breakEnabled=false,errorCount=0,invitation='';
+let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,moveConfirmed=false,wall=null,breakEnabled=false,errorCount=0,invitation='';
 try{const s=JSON.parse(localStorage.getItem(key));if(s&&typeof s.code==='string'&&typeof s.token==='string')session=s;}catch{}
 const say=s=>$('status').textContent=s,coord=p=>letters[p%7]+(Math.floor(p/7)+1),type=p=>p.type==='square'?'方棋':'圓棋';
 function save(s){session=s;try{if(s)localStorage.setItem(key,JSON.stringify(s));else localStorage.removeItem(key);}catch{}}
-function reset(){selected=-1;destination=null;wall=null;breakEnabled=false;$('break').checked=false;}
+function reset(){selected=-1;destination=null;moveConfirmed=false;wall=null;breakEnabled=false;$('break').checked=false;}
 const grid=Array.from({length:49},(_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',coord(i));b.onclick=()=>pick(i);$('board').append(b);return b;});
-const dirButtons=['上','右','下','左'].map((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name+'牆';b.onclick=()=>{const q=adjacent(destination?.to,i);if(q===null)return;wall=edge(destination.to,q);render();};$('directions').append(b);return b;});
+const dirButtons=['上','右','下','左'].map((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name+'牆';b.onclick=()=>pickWall(i);$('directions').append(b);return b;});
+function pickWall(direction){
+ if(!mine()||locked()||!moveConfirmed||!destination||(deadline&&Date.now()>=deadline))return;
+ const q=adjacent(destination.to,direction);if(q===null)return;
+ const next=edge(destination.to,q);if(!wallOptions(v.game,destination).includes(next))return;
+ if(wall===next){submit();return;}wall=next;render();
+}
+function confirmMove(){moveConfirmed=true;wall=null;render();}
+function submit(){
+ if(!mine()||locked()||!destination||(deadline&&Date.now()>=deadline))return;
+ const g=v.game;
+ if(g.phase==='setup'&&g.pieces.some(p=>p.pos===destination.to))return;
+ if(g.phase==='play'&&(!moveConfirmed||!wall||!wallOptions(g,destination).includes(wall)))return;
+ request('play',{matchId:v.matchId,seq:g.seq,piece:selected,to:destination.to,wall,breakWall:!!destination.broken});
+}
 function adjacent(p,d){if(p==null)return null;const q=p+[-7,1,7,-1][d];return neighbors(p).includes(q)?q:null;}
 function mine(){return !!v?.game&&v.game.phase!=='done'&&v.game.turn===v.me;}
 function locked(){return !!queued||busy&&inFlight!=='state';}
@@ -17,11 +31,18 @@ function availablePaths(){
 function pick(cell){
  if(!mine()||locked()||(deadline&&Date.now()>=deadline))return;
  const g=v.game;
- if(g.phase==='setup'){selected=pendingPiece(g);destination={to:cell};wall=null;render();return;}
+ if(g.phase==='setup'){
+  if(g.pieces.some(p=>p.pos===cell))return;
+  if(destination?.to===cell){submit();return;}
+  selected=pendingPiece(g);destination={to:cell};moveConfirmed=false;wall=null;render();return;
+ }
  const piece=g.pieces.findIndex(p=>p.pos===cell&&p.owner===v.me);
- if(piece>=0){selected=piece;destination=null;wall=null;render();return;}
+ if(piece>=0){selected=piece;destination=null;moveConfirmed=false;wall=null;render();return;}
  const choice=availablePaths().filter(p=>p.to===cell).sort((a,b)=>Number(!!a.broken)-Number(!!b.broken))[0];
- if(choice){destination=choice;wall=null;render();}
+ if(choice){
+  if(destination?.to===cell){if(!moveConfirmed)confirmMove();return;}
+  destination=choice;moveConfirmed=false;wall=null;render();
+ }
 }
 function svgLine(k,color,width=9,dash=''){
  const [a,b]=k.split(':').map(Number),x=a%7,y=Math.floor(a/7);
@@ -74,14 +95,14 @@ function render(){
  $('turn').textContent=ended?'疆界已定':mine()?'輪到你 · '+(g.phase==='setup'?'放置'+type(g.pieces[pendingPiece(g)]):'移動一顆棋，再造牆'):'等候 '+v.seats[g.turn].name+(v.seats[g.turn].ai?' 思考中':'');
  $('controls').hidden=!mine();
  $('break-wrap').hidden=g.phase!=='play'||!g.breakers[v.me];
- $('wall-controls').hidden=g.phase!=='play'||!destination;
+ $('wall-controls').hidden=g.phase!=='play'||!moveConfirmed;
  $('selected-title').textContent=selected<0?'選擇棋子':type(g.pieces[selected])+(g.pieces[selected].pos!==null?' · '+coord(g.pieces[selected].pos):'');
- $('instruction').textContent=ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點一個空格，確認後才會佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點；方棋直走，圓棋可以直角轉彎。':!wall?'選擇落點周圍的造牆方向。':'確認整手，或重新選擇。';
+ $('instruction').textContent=ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著選擇築牆方向。':!wall?'點築牆方向預覽，再點同一方向確認整手。':'再點同一築牆方向，送出移動與築牆。';
  const choices=destination&&selected>=0&&g.phase==='play'?wallOptions(g,destination):[];
- dirButtons.forEach((b,d)=>{const q=adjacent(destination?.to,d),k=q===null?null:edge(destination.to,q);b.disabled=locked()||!choices.includes(k);b.className=wall===k?'chosen':'';});
+ dirButtons.forEach((b,d)=>{const q=adjacent(destination?.to,d),k=q===null?null:edge(destination.to,q);b.disabled=locked()||!moveConfirmed||!choices.includes(k);b.className=wall===k?'chosen':'';});
  $('preview').textContent=destination?(g.phase==='setup'?'放置於 '+coord(destination.to):'走到 '+coord(destination.to)+(destination.broken?' · 將使用一次破牆':'')+(wall?' · 已選造牆':' · 尚未選牆')):'操作尚未送出';
- $('confirm').textContent=queued?'等候送出…':busy&&inFlight==='play'?'送出中…':g.phase==='setup'?'確認佈子':'確認移動與造牆';
- $('confirm').disabled=locked()||!mine()||!destination||(g.phase==='play'&&!wall)||(g.phase==='setup'&&g.pieces.some(p=>p.pos===destination.to));
+ $('confirm').textContent=queued?'等候送出…':busy&&inFlight==='play'?'送出中…':g.phase==='setup'?'確認佈子':!moveConfirmed?'確認落點，選擇築牆':'確認移動與築牆';
+ $('confirm').disabled=locked()||!mine()||!destination||(g.phase==='play'&&moveConfirmed&&!wall)||(g.phase==='setup'&&g.pieces.some(p=>p.pos===destination.to));
  $('cancel').disabled=locked();
  if(ended){
   const top=g.result[0],winners=g.result.filter(r=>r.total===top.total&&r.largest===top.largest);
@@ -135,8 +156,8 @@ $('ready').onclick=$('again-ready').onclick=()=>request('ready',{ready:!v.seats[
 $('start').onclick=$('again').onclick=()=>request('start');
 $('add-ai').onclick=()=>request('add-ai');$('remove-ai').onclick=()=>request('remove-ai');
 $('cancel').onclick=()=>{reset();render();};
-$('break').onchange=()=>{breakEnabled=$('break').checked;destination=null;wall=null;render();};
-$('confirm').onclick=()=>{if(!mine()||$('confirm').disabled)return;request('play',{matchId:v.matchId,seq:v.game.seq,piece:selected,to:destination.to,wall,breakWall:!!destination.broken});};
+$('break').onchange=()=>{breakEnabled=$('break').checked;destination=null;moveConfirmed=false;wall=null;render();};
+$('confirm').onclick=()=>{if(!mine()||$('confirm').disabled)return;if(v.game.phase==='play'&&!moveConfirmed)confirmMove();else submit();};
 $('leave').onclick=$('exit').onclick=()=>request('leave');
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(v.code);say('房間代碼已複製。');}catch{say('房間代碼：'+v.code);}};
 $('invite').onclick=async()=>{const url=new URL('./',location.href);url.searchParams.set('room',v.code);try{await navigator.clipboard.writeText(url.href);say('邀請連結已複製。');}catch{say('邀請連結：'+url.href);}};

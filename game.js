@@ -9,13 +9,14 @@ export function createGame(count){
   const types=count===2?['square','square','round','round']:['square','round'];
   types.forEach((type,k)=>pieces.push({owner,type,pos:count===2&&k>=2?(owner===0?[0,6]:[48,42])[k-2]:null}));
  }
- return {count,pieces,walls:[],breakers:Array(count).fill(count===3?1:0),phase:'setup',placement:0,turn:0,seq:0,last:null,reason:null};
+ return {count,pieces,roundFirst:count===3,walls:[],breakers:Array(count).fill(count===3?1:0),phase:'setup',placement:0,turn:0,seq:0,last:null,reason:null};
 }
 export function placementOrder(g){
  return g.count===3?[0,1,2,2,1,0]:[0,1,1,0];
 }
 export function pendingPiece(g){
  const owner=placementOrder(g)[g.placement];
+ if(g.roundFirst){const type=g.placement<g.count?'round':'square';return g.pieces.findIndex(p=>p.owner===owner&&p.type===type&&p.pos===null);}
  return g.pieces.findIndex(p=>p.owner===owner&&p.pos===null);
 }
 export function paths(g,index,useBreaker=false){
