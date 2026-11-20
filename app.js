@@ -1,11 +1,12 @@
 import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
 let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,moveConfirmed=false,wall=null,breakEnabled=false,errorCount=0,invitation='';
+let wallDrag=null,suppressClickUntil=0;
 try{const s=JSON.parse(localStorage.getItem(key));if(s&&typeof s.code==='string'&&typeof s.token==='string')session=s;}catch{}
 const say=s=>$('status').textContent=s,coord=p=>letters[p%7]+(Math.floor(p/7)+1),type=p=>p.type==='square'?'方棋':'圓棋';
 function save(s){session=s;try{if(s)localStorage.setItem(key,JSON.stringify(s));else localStorage.removeItem(key);}catch{}}
-function reset(){selected=-1;destination=null;moveConfirmed=false;wall=null;breakEnabled=false;$('break').checked=false;}
-const grid=Array.from({length:49},(_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',coord(i));b.onclick=()=>pick(i);$('board').append(b);return b;});
+function reset(){wallDrag=null;selected=-1;destination=null;moveConfirmed=false;wall=null;breakEnabled=false;$('break').checked=false;}
+const grid=Array.from({length:49},(_,i)=>{const b=document.createElement('button');b.type='button';b.setAttribute('aria-label',coord(i));b.onclick=e=>{if(e?.detail&&Date.now()<suppressClickUntil)return;pick(i);};$('board').append(b);return b;});
 const dirButtons=['上','右','下','左'].map((name,i)=>{const b=document.createElement('button');b.type='button';b.textContent=name+'牆';b.onclick=()=>pickWall(i);$('directions').append(b);return b;});
 function pickWall(direction){
  if(!mine()||locked()||!moveConfirmed||!destination||(deadline&&Date.now()>=deadline))return;
@@ -14,6 +15,34 @@ function pickWall(direction){
  if(wall===next){submit();return;}wall=next;render();
 }
 function confirmMove(){moveConfirmed=true;wall=null;render();}
+function beginWallDrag(e){
+ if(!mine()||locked()||!moveConfirmed||!destination||wallDrag||e.isPrimary===false||(e.button!==undefined&&e.button!==0)||(deadline&&Date.now()>=deadline))return;
+ const r=$('board').getBoundingClientRect(),size=r.width/7,x=(e.clientX-r.left)/size,y=(e.clientY-r.top)/size;
+ if(Math.floor(x)!==destination.to%7||Math.floor(y)!==Math.floor(destination.to/7))return;
+ e.preventDefault();wall=null;wallDrag={id:e.pointerId,x:e.clientX,y:e.clientY,rect:r,size,seq:v.game.seq,matchId:v.matchId};
+ $('board-shell').setPointerCapture(e.pointerId);render();
+}
+function draggedWall(e){
+ const d=wallDrag;if(!d||d.id!==e.pointerId||!destination||Math.hypot(e.clientX-d.x,e.clientY-d.y)<Math.max(8,d.size*.12))return null;
+ const x=(e.clientX-d.rect.left)/d.size,y=(e.clientY-d.rect.top)/d.size;
+ if(x<0||x>7||y<0||y>7)return null;
+ const dx=x-(destination.to%7+.5),dy=y-(Math.floor(destination.to/7)+.5),distance=Math.max(Math.abs(dx),Math.abs(dy));
+ if(distance<.28||distance>1.4||Math.abs(Math.abs(dx)-Math.abs(dy))<.12)return null;
+ const direction=Math.abs(dx)>Math.abs(dy)?dx>0?1:3:dy>0?2:0,q=adjacent(destination.to,direction);
+ const next=q===null?null:edge(destination.to,q);return wallOptions(v.game,destination).includes(next)?next:null;
+}
+function moveWallDrag(e){if(wallDrag?.id!==e.pointerId)return;e.preventDefault();wall=draggedWall(e);render();}
+function endWallDrag(e,cancel=false){
+ const d=wallDrag;if(!d||d.id!==e.pointerId)return;
+ const next=cancel?null:draggedWall(e);wallDrag=null;suppressClickUntil=Date.now()+600;
+ if($('board-shell').hasPointerCapture(e.pointerId))$('board-shell').releasePointerCapture(e.pointerId);
+ wall=next;render();
+ if(next&&v.matchId===d.matchId&&v.game.seq===d.seq)submit();
+}
+$('board-shell').onpointerdown=beginWallDrag;
+$('board-shell').onpointermove=moveWallDrag;
+$('board-shell').onpointerup=e=>endWallDrag(e);
+$('board-shell').onpointercancel=$('board-shell').onlostpointercapture=e=>endWallDrag(e,true);
 function submit(){
  if(!mine()||locked()||!destination||(deadline&&Date.now()>=deadline))return;
  const g=v.game;
@@ -67,6 +96,11 @@ function drawBoard(){
  let drawing=g.walls.map(k=>svgLine(k,k===g.last?.wall?'#fff0bf':'#63452a',9)).join('');
  if(destination?.broken)drawing+=svgLine(destination.broken,'#ee8769',12,'stroke-dasharray="10 7"');
  if(wall)drawing+=svgLine(wall,'#efffc5',12);
+ if(moveConfirmed&&destination&&!ended){
+  const p=destination.to,x=p%7,y=Math.floor(p/7);
+  drawing+=wallOptions(g,destination).map(k=>svgLine(k,'#f9ffd1',7,'stroke-dasharray="10 6"')).join('');
+  drawing+='<circle cx="'+((x+.5)*100)+'" cy="'+((y+.5)*100)+'" r="33" fill="none" stroke="#fff6c0" stroke-width="3" stroke-dasharray="5 6"/>';
+ }
  $('board-art').innerHTML=drawing;
 }
 function render(){
@@ -96,8 +130,9 @@ function render(){
  $('controls').hidden=!mine();
  $('break-wrap').hidden=g.phase!=='play'||!g.breakers[v.me];
  $('wall-controls').hidden=g.phase!=='play'||!moveConfirmed;
+ $('board-shell').style.touchAction=mine()&&moveConfirmed?'none':'';
  $('selected-title').textContent=selected<0?'選擇棋子':type(g.pieces[selected])+(g.pieces[selected].pos!==null?' · '+coord(g.pieces[selected].pos):'');
- $('instruction').textContent=ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著選擇築牆方向。':!wall?'點築牆方向預覽，再點同一方向確認整手。':'再點同一築牆方向，送出移動與築牆。';
+ $('instruction').textContent=ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著拖曳築牆。':wallDrag?'拖向亮起的邊，放開即可築牆；拖回中央可取消。':'從落點往亮起的邊拖曳，放開即可送出移動與築牆。';
  const choices=destination&&selected>=0&&g.phase==='play'?wallOptions(g,destination):[];
  dirButtons.forEach((b,d)=>{const q=adjacent(destination?.to,d),k=q===null?null:edge(destination.to,q);b.disabled=locked()||!moveConfirmed||!choices.includes(k);b.className=wall===k?'chosen':'';});
  $('preview').textContent=destination?(g.phase==='setup'?'放置於 '+coord(destination.to):'走到 '+coord(destination.to)+(destination.broken?' · 將使用一次破牆':'')+(wall?' · 已選造牆':' · 尚未選牆')):'操作尚未送出';
@@ -162,5 +197,5 @@ $('leave').onclick=$('exit').onclick=()=>request('leave');
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(v.code);say('房間代碼已複製。');}catch{say('房間代碼：'+v.code);}};
 $('invite').onclick=async()=>{const url=new URL('./',location.href);url.searchParams.set('room',v.code);try{await navigator.clipboard.writeText(url.href);say('邀請連結已複製。');}catch{say('邀請連結：'+url.href);}};
 invitation=(new URLSearchParams(location.search).get('room')||'').toUpperCase();if(/^[A-HJ-NP-Z2-9]{8}$/.test(invitation))$('code').value=invitation;
-document.addEventListener('visibilitychange',schedule);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&wallDrag)endWallDrag({pointerId:wallDrag.id},true);schedule();});
 render();if(session)request('state');
