@@ -302,7 +302,7 @@ document.addEventListener('pointerdown',()=>void audio.unlock(),{capture:true,pa
 document.addEventListener('pointerdown',e=>{const menu=$('game-actions');if(menu.open&&!menu.contains(e.target))menu.open=false;});
 document.addEventListener('keydown',()=>void audio.unlock(),{capture:true});
 $('restart-game').onclick=()=>askManagement('restart');$('end-game').onclick=()=>askManagement('end-game');
-$('action-cancel').onclick=()=>{management=null;render();$('restart-game').focus();};
+$('action-cancel').onclick=()=>{management=null;render();$('game-actions').querySelector?.('summary')?.focus();};
 $('action-accept').onclick=acceptManagement;
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(management){management=null;render();$('game-actions').open=true;$('restart-game').focus();}else $('game-actions').open=false;}});
 $('cancel').onclick=()=>{reset();render();};
