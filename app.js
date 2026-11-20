@@ -1,7 +1,7 @@
 import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
 let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,moveConfirmed=false,wall=null,breakEnabled=false,errorCount=0,invitation='';
-let wallDrag=null,suppressClickUntil=0;
+let wallDrag=null,suppressClickUntil=0,management=null;
 try{const s=JSON.parse(localStorage.getItem(key));if(s&&typeof s.code==='string'&&typeof s.token==='string')session=s;}catch{}
 const say=s=>$('status').textContent=s,coord=p=>letters[p%7]+(Math.floor(p/7)+1),type=p=>p.type==='square'?'方棋':'圓棋';
 function save(s){session=s;try{if(s)localStorage.setItem(key,JSON.stringify(s));else localStorage.removeItem(key);}catch{}}
@@ -52,7 +52,17 @@ function submit(){
 }
 function adjacent(p,d){if(p==null)return null;const q=p+[-7,1,7,-1][d];return neighbors(p).includes(q)?q:null;}
 function mine(){return !!v?.game&&v.game.phase!=='done'&&v.game.turn===v.me;}
-function locked(){return !!queued||busy&&inFlight!=='state';}
+function locked(){return !!management||!!queued||busy&&inFlight!=='state';}
+function askManagement(op){
+ if(!v?.host||!v.game||locked())return;
+ if(wallDrag)endWallDrag({pointerId:wallDrag.id},true);
+ management={op,matchId:v.matchId};render();$('action-cancel').focus();
+}
+function acceptManagement(){
+ if(!management||busy&&inFlight!=='state'||queued)return;
+ const action=management;management=null;render();
+ if(v?.host&&v.game&&v.matchId===action.matchId)request(action.op,{matchId:action.matchId});
+}
 function availablePaths(){
  const g=v?.game;if(!g||selected<0)return [];
  return paths(g,selected,breakEnabled).filter(p=>wallOptions(g,p).length&&(!breakEnabled||p.broken));
@@ -104,10 +114,22 @@ function drawBoard(){
  $('board-art').innerHTML=drawing;
 }
 function render(){
+ if(management&&(!v?.game||management.matchId!==v.matchId))management=null;
+ $('action-confirm').hidden=!management;
+ $('game-actions').hidden=!v?.game;
+ if(management){
+  const restart=management.op==='restart',solo=v.seats.filter(p=>!p.ai).length===1;
+  $('action-title').textContent=restart?'重新開始這場對局？':'確定結束遊戲？';
+  $('action-copy').textContent=restart?'本局棋盤與棋譜會清空，保留目前玩家與座位，從佈子重新開始。':solo?'本局不計勝負，結束後返回首頁。':'本局不計勝負，所有玩家會一起返回等候室，房間代碼保留。';
+  $('action-accept').textContent=restart?'確定重新開始':'確定結束遊戲';
+  $('action-accept').disabled=busy&&inFlight!=='state'||!!queued;
+ }
  $('entry').hidden=!!session;$('room').hidden=!v;$('room-bar').hidden=!v;
  for(const id of ['create','practice','join'])$(id).disabled=busy;
  if(!v)return;
  const g=v.game,active=g&&g.phase!=='done',ended=g?.phase==='done';
+ $('restart-game').disabled=$('end-game').disabled=!v.host||locked();
+ $('host-action-note').textContent=v.host?'由你管理，全桌同步':'重新開始、結束遊戲由房主操作';
  $('room-code').textContent=v.code;
  $('players').style.setProperty('--players',v.count);
  $('players').replaceChildren(...v.seats.map((p,i)=>{
@@ -154,7 +176,7 @@ function clock(){
 }
 setInterval(clock,250);
 async function request(op,extra={}){
- if(busy){if(op==='play'&&inFlight==='state'&&!queued){queued={op,extra,matchId:v.matchId,seq:v.game.seq};render();}return;}
+ if(busy){if(['play','restart','end-game'].includes(op)&&inFlight==='state'&&!queued){queued={op,extra,matchId:v.matchId,seq:v.game.seq};render();}return;}
  busy=true;inFlight=op;clearTimeout(timer);if(op!=='state')say('連線中…');render();
  try{
   const response=await fetch(endpoint,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({op,...session,...extra}),credentials:'omit',cache:'no-store',redirect:'error',signal:AbortSignal.timeout(10000)});
@@ -171,11 +193,11 @@ async function request(op,extra={}){
    if(!old||old.matchId!==v.matchId||old.game?.seq!==v.game?.seq){reset();if(v.game)$('info').open=false;}
    deadline=v.deadline?Date.now()+v.deadline-v.serverNow:0;
   }
-  if(op!=='state'||errorCount)say('');errorCount=0;
+  if(result.view?.notice)say(result.view.notice);else if(op!=='state'||errorCount)say('');errorCount=0;
  }catch(e){errorCount=Math.min(4,errorCount+1);say(e instanceof TypeError||e.name==='TimeoutError'?'連線中斷，正在嘗試恢復；回合倒數不會暫停。':e.message);}
  finally{
   busy=false;inFlight=null;const pending=queued;queued=null;render();
-  if(pending&&v?.game&&v.matchId===pending.matchId&&v.game.seq===pending.seq&&mine())request('play',pending.extra);
+  if(pending&&v?.game&&v.matchId===pending.matchId&&(pending.op==='play'?v.game.seq===pending.seq&&mine():v.host))request(pending.op,pending.extra);
   else schedule();
  }
 }
@@ -190,6 +212,10 @@ $('join').onclick=()=>{const name=$('name').value.trim(),code=$('code').value.tr
 $('ready').onclick=$('again-ready').onclick=()=>request('ready',{ready:!v.seats[v.me].ready});
 $('start').onclick=$('again').onclick=()=>request('start');
 $('add-ai').onclick=()=>request('add-ai');$('remove-ai').onclick=()=>request('remove-ai');
+$('restart-game').onclick=()=>askManagement('restart');$('end-game').onclick=()=>askManagement('end-game');
+$('action-cancel').onclick=()=>{management=null;render();$('restart-game').focus();};
+$('action-accept').onclick=acceptManagement;
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&management){management=null;render();$('restart-game').focus();}});
 $('cancel').onclick=()=>{reset();render();};
 $('break').onchange=()=>{breakEnabled=$('break').checked;destination=null;moveConfirmed=false;wall=null;render();};
 $('confirm').onclick=()=>{if(!mine()||$('confirm').disabled)return;if(v.game.phase==='play'&&!moveConfirmed)confirmMove();else submit();};

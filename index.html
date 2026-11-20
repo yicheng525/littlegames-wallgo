@@ -1,4 +1,4 @@
-<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>圍牆圍棋2 · Little Games</title><link rel="stylesheet" href="style.css?v=1"></head>
+<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="robots" content="noindex,nofollow"><meta name="referrer" content="no-referrer"><title>圍牆圍棋2 · Little Games</title><link rel="stylesheet" href="style.css?v=4"></head>
 <body><main>
 <details id="info" open><summary>圍牆圍棋2 · 遊戲與房間資訊</summary>
 <header><span class="seal" aria-hidden="true">圍</span><div><span class="eyebrow">LITTLE GAMES / WALL GO II</span><h1>圍牆圍棋<span>2</span></h1><p>一方一圓，一步一牆。把局勢，圍成你的領地。</p></div></header>
@@ -17,6 +17,8 @@
 <p id="status" role="status"></p>
 <section id="room" hidden>
 <div id="players" aria-label="玩家座位"></div>
+<div id="game-actions" class="game-actions" hidden><button id="restart-game">重新開始</button><button id="end-game" class="danger">結束遊戲</button><small id="host-action-note">由房主操作，全桌同步</small></div>
+<section id="action-confirm" class="card action-confirm" role="alertdialog" aria-labelledby="action-title" aria-describedby="action-copy" hidden><h2 id="action-title"></h2><p id="action-copy"></p><div class="buttons"><button id="action-cancel">繼續遊戲</button><button id="action-accept" class="danger">確定</button></div></section>
 <section id="lobby" class="card" hidden><h2>等候入座</h2><p id="lobby-copy"></p><div class="buttons"><button id="ready" class="primary">準備好了</button><button id="add-ai">加入 AI</button><button id="remove-ai">移除一位 AI</button><button id="start">開始對局</button><button id="leave">離開房間</button></div></section>
 <div id="table" hidden>
 <div class="table-meta"><div><span class="eyebrow" id="stage">開局佈子</span><h2 id="turn"></h2></div><span id="clock"></span></div>
@@ -32,6 +34,7 @@
 <section id="result" class="card" hidden><span class="eyebrow">THE LAND IS SETTLED</span><h2 id="result-title">本局結算</h2><ol id="scores"></ol><div class="buttons"><button id="again-ready">準備再來一局</button><button id="again" class="primary">房主開新局</button><button id="exit">離開房間</button></div></section>
 <details id="history" class="card" hidden><summary>最近棋譜</summary><ol id="events"></ol></details>
 </section><footer>LITTLE GAMES · 每一面牆，都是下一步的伏筆。</footer>
-</main><script type="module" src="app.js?v=3"></script></body></html>
+</main><script type="module" src="app.js?v=4"></script></body></html>
+
 
 
