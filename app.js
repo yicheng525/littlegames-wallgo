@@ -1,4 +1,5 @@
 import {N,pendingPiece,paths,wallOptions,legalActions,regions,edge,neighbors} from './game.js?v=2';
+import {audio} from './audio.js?v=1';
 const $=id=>document.getElementById(id),colors=['#71cbb2','#f2c35b','#bfadf5'],letters='ABCDEFG',endpoint='https://little-games-wallgo-rooms.ciclol.chatgpt.site/v1/room',key='wallgo-room-v1';
 let session=null,v=null,busy=false,inFlight=null,queued=null,timer=null,deadline=0,selected=-1,destination=null,moveConfirmed=false,wall=null,breakEnabled=false,errorCount=0,invitation='';
 let wallDrag=null,suppressClickUntil=0,management=null,boardStamp='',connectionIssue=false,needsSync=false,lastSync=0;
@@ -14,7 +15,7 @@ function pickWall(direction){
  const next=edge(destination.to,q);if(!wallOptions(v.game,destination).includes(next))return;
  if(wall===next){submit();return;}wall=next;render();
 }
-function confirmMove(){moveConfirmed=true;wall=null;render();}
+function confirmMove(){moveConfirmed=true;wall=null;void audio.play('select');render();}
 function beginWallDrag(e){
  if(!mine()||locked()||!moveConfirmed||!destination||wallDrag||e.isPrimary===false||(e.button!==undefined&&e.button!==0)||(deadline&&Date.now()>=deadline))return;
  const r=$('board').getBoundingClientRect(),size=r.width/7,x=(e.clientX-r.left)/size,y=(e.clientY-r.top)/size;
@@ -73,14 +74,14 @@ function pick(cell){
  if(g.phase==='setup'){
   if(g.pieces.some(p=>p.pos===cell))return;
   if(destination?.to===cell){submit();return;}
-  selected=pendingPiece(g);destination={to:cell};moveConfirmed=false;wall=null;render();return;
+  selected=pendingPiece(g);destination={to:cell};moveConfirmed=false;wall=null;void audio.play('select');render();return;
  }
  const piece=g.pieces.findIndex(p=>p.pos===cell&&p.owner===v.me);
- if(piece>=0){selected=piece;destination=null;moveConfirmed=false;wall=null;render();return;}
+ if(piece>=0){selected=piece;destination=null;moveConfirmed=false;wall=null;void audio.play('select');render();return;}
  const choice=availablePaths().filter(p=>p.to===cell).sort((a,b)=>Number(!!a.broken)-Number(!!b.broken))[0];
  if(choice){
   if(destination?.to===cell){if(!moveConfirmed)confirmMove();return;}
-  destination=choice;moveConfirmed=false;wall=null;render();
+  destination=choice;moveConfirmed=false;wall=null;void audio.play('select');render();
  }
 }
 function svgLine(k,color,width=9,dash=''){
@@ -202,11 +203,12 @@ async function request(op,extra={}){
    if(op==='state'&&[403,404].includes(response.status)){save(null);v=null;reset();}
    throw Object.assign(Error(result.error||'服務暫時忙碌。'),{retryable:response.status>=500});
   }
-  if(result.left){save(null);v=null;reset();$('info').open=true;}
+  if(result.left){save(null);v=null;reset();audio.update(null);audio.stop();$('info').open=true;}
   else{
    const old=v;
    if(result.token)save({code:result.view.code,token:result.token});
    v=result.view;
+   audio.update(v);
    if(!old||old.matchId!==v.matchId||old.game?.seq!==v.game?.seq){reset();if(v.game)$('info').open=false;}
    deadline=v.deadline?Date.now()+v.deadline-v.serverNow:0;
   }
@@ -231,6 +233,10 @@ $('ready').onclick=$('again-ready').onclick=()=>request('ready',{ready:!v.seats[
 $('start').onclick=$('again').onclick=()=>request('start');
 $('add-ai').onclick=()=>request('add-ai');$('remove-ai').onclick=()=>request('remove-ai');
 $('retry-sync').onclick=()=>request('state');
+function showAudio(){const enabled=audio.isEnabled();$('sound-toggle').textContent=enabled?'音效：開':'音效：關';$('sound-toggle').setAttribute('aria-pressed',String(enabled));}
+$('sound-toggle').onclick=()=>{audio.setEnabled(!audio.isEnabled());showAudio();};
+document.addEventListener('pointerdown',()=>void audio.unlock(),{capture:true,passive:true});
+document.addEventListener('keydown',()=>void audio.unlock(),{capture:true});
 $('restart-game').onclick=()=>askManagement('restart');$('end-game').onclick=()=>askManagement('end-game');
 $('action-cancel').onclick=()=>{management=null;render();$('restart-game').focus();};
 $('action-accept').onclick=acceptManagement;
@@ -242,5 +248,5 @@ $('leave').onclick=$('exit').onclick=()=>request('leave');
 $('copy').onclick=async()=>{try{await navigator.clipboard.writeText(v.code);say('房間代碼已複製。');}catch{say('房間代碼：'+v.code);}};
 $('invite').onclick=async()=>{const url=new URL('./',location.href);url.searchParams.set('room',v.code);try{await navigator.clipboard.writeText(url.href);say('邀請連結已複製。');}catch{say('邀請連結：'+url.href);}};
 invitation=(new URLSearchParams(location.search).get('room')||'').toUpperCase();if(/^[A-HJ-NP-Z2-9]{8}$/.test(invitation))$('code').value=invitation;
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&wallDrag)endWallDrag({pointerId:wallDrag.id},true);schedule();});
-render();if(session)request('state');
+document.addEventListener('visibilitychange',()=>{if(document.hidden){audio.stop();if(wallDrag)endWallDrag({pointerId:wallDrag.id},true);}schedule();});
+showAudio();render();if(session)request('state');

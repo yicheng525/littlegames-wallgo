@@ -1,0 +1,14 @@
+Sound effects by Kenney (https://kenney.nl), Creative Commons CC0 1.0:
+https://creativecommons.org/publicdomain/zero/1.0/
+
+Casino Audio: https://kenney.nl/assets/casino-audio
+place.wav = chip-lay-1.ogg; turn.wav = chips-stack-1.ogg
+Impact Sounds: https://kenney.nl/assets/impact-sounds
+select.wav = impactWood_light_000.ogg
+wall.wav = impactWood_medium_000.ogg
+break.wav = impactWood_heavy_000.ogg
+
+Downloaded from the public mirror:
+https://github.com/Mcamento8/open-game-sfx-index/tree/main/audio
+Converted from OGG to PCM WAV for browser compatibility.
+Playback volume reduced in game; finish cue repeats the stack recording three times.

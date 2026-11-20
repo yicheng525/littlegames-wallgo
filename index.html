@@ -14,7 +14,7 @@
 <button id="practice" class="primary">和電腦下棋</button><button id="create">建立朋友房</button>
 <div class="join-row"><label>房間代碼<input id="code" maxlength="8" placeholder="8 碼房間代碼" autocomplete="off" autocapitalize="characters"></label><button id="join">加入</button></div>
 </section>
-<div class="connection-bar"><span id="connection" class="connection" role="status" hidden></span><button id="retry-sync" hidden>立即重連</button></div>
+<div class="connection-bar"><button id="sound-toggle" aria-pressed="true">音效：開</button><span id="connection" class="connection" role="status" hidden></span><button id="retry-sync" hidden>立即重連</button></div>
 <p id="status" role="status"></p>
 <section id="room" hidden>
 <div id="players" aria-label="玩家座位"></div>
@@ -36,7 +36,8 @@
 <section id="result" class="card" hidden><span class="eyebrow">THE LAND IS SETTLED</span><h2 id="result-title">本局結算</h2><ol id="scores"></ol><div class="buttons"><button id="again-ready">準備再來一局</button><button id="again" class="primary">房主開新局</button><button id="exit">離開房間</button></div></section>
 <details id="history" class="card" hidden><summary>最近棋譜</summary><ol id="events"></ol></details>
 </section><footer>LITTLE GAMES · 每一面牆，都是下一步的伏筆。</footer>
-</main><script type="module" src="app.js?v=5"></script></body></html>
+</main><script type="module" src="app.js?v=6"></script></body></html>
+
 
 
 
