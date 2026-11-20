@@ -60,6 +60,7 @@ function locked(){return needsSync||!!management||!!queued||busy&&inFlight!=='st
 function askManagement(op){
  if(!v?.host||!v.game||locked())return;
  if(wallDrag)endWallDrag({pointerId:wallDrag.id},true);
+ $('game-actions').open=false;
  management={op,matchId:v.matchId};render();$('action-cancel').focus();
 }
 function acceptManagement(){
@@ -156,7 +157,7 @@ function drawWalls(){
  $('board-art').innerHTML=drawing;
 }
 function render(){
- $('connection').hidden=!session;
+ $('connection').hidden=!session||!connectionIssue&&!needsSync;
  $('connection').textContent=needsSync?'正在確認上一手…':connectionIssue?'連線恢復中…':lastSync?'已連線':'連線中…';
  $('connection').className=connectionIssue||needsSync?'connection warning':'connection';
  $('retry-sync').hidden=!session||!connectionIssue;
@@ -177,6 +178,7 @@ function render(){
  const g=v.game,active=g&&g.phase!=='done',ended=g?.phase==='done';
  $('restart-game').disabled=$('end-game').disabled=!v.host||locked();
  $('host-action-note').textContent=v.host?'由你管理，全桌同步':'重新開始、結束遊戲由房主操作';
+ $('host-action-note').hidden=v.host;
  $('room-code').textContent=v.code;
  $('players').style.setProperty('--players',v.count);
  $('players').replaceChildren(...v.seats.map((p,i)=>{
@@ -203,16 +205,18 @@ function render(){
  const step=g.phase==='setup'?0:selected<0?0:!moveConfirmed?1:2;
  $('steps').hidden=!mine()||g.phase==='setup';
  Array.from($('steps').children).forEach((el,i)=>{el.className=i===step?'current':i<step?'complete':'';el.setAttribute('aria-current',i===step?'step':'false');});
- $('turn').textContent=ended?'疆界已定':mine()?'輪到你 · '+(g.phase==='setup'?'放置'+type(g.pieces[pendingPiece(g)]):'移動一顆棋，再造牆'):'等候 '+v.seats[g.turn].name+(v.seats[g.turn].ai?' 思考中':'');
+ $('turn').textContent=ended?'本局結束':mine()?'你的回合'+(g.phase==='setup'?' · 放'+type(g.pieces[pendingPiece(g)]):''):'等候 '+v.seats[g.turn].name;
  $('controls').hidden=!mine();
  showDragFeedback();
  $('break-wrap').hidden=g.phase!=='play'||!g.breakers[v.me];
  $('wall-controls').hidden=g.phase!=='play'||!moveConfirmed;
  $('board-shell').style.touchAction=mine()&&moveConfirmed?'none':'';
  $('selected-title').textContent=selected<0?'選擇棋子':type(g.pieces[selected])+(g.pieces[selected].pos!==null?' · '+coord(g.pieces[selected].pos):'');
+ $('selected-title').hidden=$('cancel').hidden=selected<0;
  $('piece-help').hidden=!mine()||g.phase!=='play'||selected<0;
  if(selected>=0&&g.phase==='play')$('piece-help').textContent=g.pieces[selected].type==='square'?'方棋：上下左右直走 1 或 2 格。':'圓棋：上下左右走 1 格，或直角轉彎再走 1 格。';
- $('instruction').textContent=needsSync?'正在確認上一手是否成功，請稍候。':queued||busy&&inFlight==='play'?'正在送出整手，請稍候…':ended?'專屬領地已著色；無棋區域與混合區域不計分。':!mine()?'可觀察棋盤。每手 90 秒，電腦會稍作思考。':g.phase==='setup'?'點空格預覽，再點同一格確認佈子。':selected<0?'點自己的棋子，選擇要移動哪一顆。':!destination?'點亮起的落點預覽移動。':!moveConfirmed?'再點同一落點確認移動，接著拖曳築牆。':wallDrag?'拖向亮起的邊，放開即可築牆；拖回中央可取消。':'從落點往亮起的邊拖曳，放開即可送出移動與築牆。';
+ $('instruction').textContent=needsSync?'正在確認上一手…':queued||busy&&inFlight==='play'?'送出中…':ended?'領地已著色。':!mine()?'':g.phase==='setup'?'點同一空格兩次佈子':selected<0?'選擇棋子':!destination?'選擇落點':!moveConfirmed?'再點同一格確認落點':'';
+ $('instruction').hidden=!$('instruction').textContent;
  if(mine()&&!locked()&&g.phase==='play'&&selected>=0&&!destination&&!availablePaths().length)$('instruction').textContent='這顆棋目前沒有合法落點，請換一顆棋'+(g.breakers[v.me]&&!breakEnabled?'，或勾選破牆查看路徑。':'。');
  const choices=destination&&selected>=0&&g.phase==='play'?wallOptions(g,destination):[];
  dirButtons.forEach((b,d)=>{const q=adjacent(destination?.to,d),k=q===null?null:edge(destination.to,q);b.disabled=locked()||!moveConfirmed||!choices.includes(k);b.className=wall===k?'chosen':'';});
@@ -295,11 +299,12 @@ $('download-record').onclick=()=>{
 function showAudio(){const enabled=audio.isEnabled();$('sound-toggle').textContent=enabled?'音效：開':'音效：關';$('sound-toggle').setAttribute('aria-pressed',String(enabled));}
 $('sound-toggle').onclick=()=>{audio.setEnabled(!audio.isEnabled());showAudio();};
 document.addEventListener('pointerdown',()=>void audio.unlock(),{capture:true,passive:true});
+document.addEventListener('pointerdown',e=>{const menu=$('game-actions');if(menu.open&&!menu.contains(e.target))menu.open=false;});
 document.addEventListener('keydown',()=>void audio.unlock(),{capture:true});
 $('restart-game').onclick=()=>askManagement('restart');$('end-game').onclick=()=>askManagement('end-game');
 $('action-cancel').onclick=()=>{management=null;render();$('restart-game').focus();};
 $('action-accept').onclick=acceptManagement;
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&management){management=null;render();$('restart-game').focus();}});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'){if(management){management=null;render();$('game-actions').open=true;$('restart-game').focus();}else $('game-actions').open=false;}});
 $('cancel').onclick=()=>{reset();render();};
 $('break').onchange=()=>{breakEnabled=$('break').checked;destination=null;moveConfirmed=false;wall=null;render();};
 $('confirm').onclick=()=>{if(!mine()||$('confirm').disabled)return;if(v.game.phase==='play'&&!moveConfirmed)confirmMove();else submit();};
